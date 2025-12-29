@@ -208,7 +208,26 @@ func (m *HeadManager) SelectBeam(head *SearchHead, tree *ArmTree, beamWidth int)
 	for i, node := range candidates {
 		tsScore := head.Sampler.SampleScore(node)
 		penalty := m.computeDiversityPenalty(node.Prefix, otherFocuses)
-		combined := tsScore * (1 + m.diversityWeight*penalty)
+
+		// Depth bonus: prefer drilling into finer prefixes
+		// This encourages exploitation of promising sub-regions
+		depthBonus := 0.0
+		bits := node.Prefix.Bits()
+		if node.Prefix.Addr().Is4() {
+			// For IPv4: /24 is max, /16 is starting point
+			// Give up to 20% bonus for finer prefixes
+			depthBonus = float64(bits-16) / 8.0 * 0.2
+		} else {
+			// For IPv6: /56 is max, /32 is typical starting point
+			depthBonus = float64(bits-32) / 24.0 * 0.2
+		}
+		if depthBonus < 0 {
+			depthBonus = 0
+		}
+
+		// Combined score (lower is better)
+		// Apply diversity penalty and depth bonus
+		combined := tsScore * (1 + m.diversityWeight*penalty) * (1 - depthBonus)
 
 		scored[i] = scoredCandidate{
 			prefix:   node.Prefix,
@@ -387,4 +406,3 @@ func (m *HeadManager) RebalanceHeads(tree *ArmTree) {
 		}
 	}
 }
-
